@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lecture : {{ filename }}</title>
+    <style>
+        /* Réinitialisation stricte pour éviter tout espace parasite */
+        html, body { margin: 0; padding: 0; background-color: #000; width: 100%; }
+        
+        /* Bandeau de navigation sticky */
+        .navbar {
+            position: sticky; top: 0; z-index: 100; opacity: 0.9;
+            background: #333; color: white; display: flex;
+            justify-content: space-between; align-items: center;
+            padding: 10px 20px; font-family: Arial, sans-serif;
+            box-shadow: 0px 2px 10px rgba(0,0,0,0.5);
+        }
+        
+        .navbar a {
+            color: #4CAF50; text-decoration: none; font-weight: bold;
+            padding: 5px 15px; border: 1px solid #4CAF50; border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .navbar a:hover { background: #4CAF50; color: #111; }
+        .navbar a.disabled {
+            color: #777; border-color: #777; pointer-events: none; opacity: 0.5;
+        }
+        
+        .nav-center { font-size: 1.1em; text-align: center; }
+        .nav-center span.counter { color: #4CAF50; font-weight: bold; }
+
+        /* Conteneur et images : AUCUN écart */
+        .reader-container {
+            display: flex; flex-direction: column; align-items: center;
+            width: 100%; margin: 0; padding: 0; line-height: 0; font-size: 0;
+        }
+        .reader-container img {
+            display: block; max-width: 100%; height: auto;
+            margin: 0; padding: 0; border: none;
+        }
+
+        /* Overlay Drag & Drop */
+        #drop-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.8); color: white; display: none;
+            align-items: center; justify-content: center; font-size: 2rem; z-index: 10000;
+        }
+        #drop-overlay.active { display: flex; }
+    </style>
+</head>
+<body>
+    <div id="drop-overlay">Déposez votre nouvelle archive CBZ ici</div>
+
+    <div class="navbar">
+        <a href="{% if prev_file %}{{ url_for('read_cbz', file=prev_file) }}{% else %}#{% endif %}" 
+           class="{% if not prev_file %}disabled{% endif %}">
+           &laquo; Précédent
+        </a>
+        
+        <div class="nav-center">
+            {{ filename }} | <span class="counter" id="page-counter">1 / {{ images|length }}</span>
+        </div>
+        
+        <a href="{% if next_file %}{{ url_for('read_cbz', file=next_file) }}{% else %}#{% endif %}" 
+           class="{% if not next_file %}disabled{% endif %}">
+           Suivant &raquo;
+        </a>
+    </div>
+
+    <div class="reader-container">
+        {% for img in images %}
+            <img src="{{ url_for('get_image', file=file_path, img=img) }}" 
+                 alt="{{ img }}" 
+                 loading="lazy" 
+                 data-page="{{ loop.index }}">
+        {% endfor %}
+    </div>
+
+    <script>
+        // --- 1. Compteur de page dynamique ---
+        const counterElement = document.getElementById('page-counter');
+        const totalPages = {{ images|length }};
+        
+        // Astuce : rootMargin crée une ligne horizontale virtuelle exactement au milieu de l'écran.
+        // L'image qui croise cette ligne est considérée comme la page actuelle.
+        const observerOptions = {
+            root: null,
+            rootMargin: "-50% 0px -50% 0px",
+            threshold: 0
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const pageNum = entry.target.getAttribute('data-page');
+                    counterElement.innerText = `${pageNum} / ${totalPages}`;
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.reader-container img').forEach(img => observer.observe(img));
+
+        // --- 2. Logique Drag and Drop ---
+        let dragCounter = 0;
+        const overlay = document.getElementById('drop-overlay');
+
+        window.addEventListener('dragenter', (e) => {
+            e.preventDefault(); dragCounter++; overlay.classList.add('active');
+        });
+        window.addEventListener('dragleave', () => {
+            dragCounter--; if(dragCounter === 0) overlay.classList.remove('active');
+        });
+        window.addEventListener('dragover', (e) => e.preventDefault());
+        
+        window.addEventListener('drop', (e) => {
+            e.preventDefault(); dragCounter = 0; overlay.classList.remove('active');
+            
+            const file = e.dataTransfer.files[0];
+            if(file && file.name.toLowerCase().endsWith('.cbz')) {
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                fetch('/upload', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.url) window.location.href = data.url;
+                    else alert(data.error);
+                }).catch(err => alert("Erreur réseau."));
+            } else {
+                alert("Veuillez déposer un fichier .cbz valide.");
+            }
+        });
+    </script>
+</body>
+</html>
