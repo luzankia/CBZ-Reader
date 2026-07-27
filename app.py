@@ -4,6 +4,8 @@ import zipfile
 import argparse
 import tempfile
 import mimetypes
+import webbrowser
+from threading import Timer
 from flask import Flask, render_template, request, send_file, redirect, url_for, jsonify
 from werkzeug.utils import secure_filename
 from natsort import natsorted
@@ -18,7 +20,6 @@ def is_image(filename):
 
 def get_mime_type(filename):
     ext = os.path.splitext(filename)[1].lower()
-    # Ajout manuel pour les formats web modernes au cas où la version Python soit ancienne
     custom_mimes = {
         '.webp': 'image/webp',
         '.avif': 'image/avif',
@@ -29,8 +30,12 @@ def get_mime_type(filename):
 
 @app.route('/')
 def index():
-    base = app.config['BASE_TARGET']
+    base = app.config.get('BASE_TARGET')
     
+    # Si aucun argument n'a été passé au lancement
+    if not base:
+        return render_template('index.html', files=None, base_dir="En attente d'archive (Drag & Drop)")
+        
     # Si l'argument CLI est un fichier
     if os.path.isfile(base) and base.lower().endswith('.cbz'):
         return redirect(url_for('read_cbz', file=base))
@@ -53,13 +58,11 @@ def read_cbz():
 
     try:
         with zipfile.ZipFile(file_path, 'r') as archive:
-            # Récupération et tri naturel des images de l'archive
             images = [f for f in archive.namelist() if is_image(f)]
             images = natsorted(images)
     except zipfile.BadZipFile:
         return "Erreur : Fichier CBZ corrompu ou invalide.", 400
 
-    # Logique d'archive Précédente / Suivante
     parent_dir = os.path.dirname(file_path)
     try:
         cbz_files = natsorted([f for f in os.listdir(parent_dir) if f.lower().endswith('.cbz')])
@@ -80,7 +83,6 @@ def read_cbz():
 
 @app.route('/image')
 def get_image():
-    # Sert l'image à la volée depuis la RAM (sans extraction disque)
     file_path = request.args.get('file')
     image_name = request.args.get('img')
 
@@ -98,7 +100,6 @@ def get_image():
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    # Gère le Drag & Drop
     if 'file' not in request.files:
         return jsonify({'error': 'Aucun fichier fourni'}), 400
     
@@ -115,20 +116,22 @@ def upload():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Lecteur d'archives CBZ Web Local")
-    parser.add_argument('path', type=str, help="Chemin vers un fichier .cbz ou un dossier contenant des .cbz")
+    parser.add_argument('path', type=str, nargs='?', default=None, help="Chemin vers un fichier .cbz ou un dossier contenant des .cbz (optionnel)")
     args = parser.parse_args()
 
-    # On convertit le chemin en chemin absolu pour gérer facilement MacOS, Windows et Linux
-    abs_path = os.path.abspath(args.path)
-    
-    if not os.path.exists(abs_path):
-        print(f"Erreur : Le chemin '{abs_path}' n'existe pas.")
-        exit(1)
-
-    app.config['BASE_TARGET'] = abs_path
+    if args.path:
+        abs_path = os.path.abspath(args.path)
+        if not os.path.exists(abs_path):
+            print(f"Erreur : Le chemin '{abs_path}' n'existe pas.")
+            exit(1)
+        app.config['BASE_TARGET'] = abs_path
+        print(f"[*] Cible : {abs_path}")
+    else:
+        app.config['BASE_TARGET'] = None
+        print(f"[*] Démarrage à vide. Prêt pour le Drag & Drop.")
     
     print(f"[*] Démarrage du serveur...")
-    print(f"[*] Cible : {abs_path}")
-    print(f"[*] Ouvrez http://127.0.0.1:5000 dans votre navigateur.")
+    
+    Timer(1, lambda: webbrowser.open_new("http://127.0.0.1:5000")).start()
     
     app.run(host='127.0.0.1', port=5000, debug=False)
